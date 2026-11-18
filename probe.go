@@ -237,7 +237,13 @@ func NewProber(t Target) (Prober, error) {
 	if t.Port != "" {
 		return &tcpProber{addr: net.JoinHostPort(t.Host, t.Port)}, nil
 	}
-	return newICMPProber(t.Host)
+	p, err := newICMPProber(t.Host)
+	if err != nil {
+		// return a real nil interface, not a nil *icmpProber wrapped in one -
+		// callers check prober == nil
+		return nil, err
+	}
+	return p, nil
 }
 
 func shortErr(err error) error {

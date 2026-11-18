@@ -97,9 +97,21 @@ func sparkline(p palette, s []Sample, width int) string {
 	return b.String()
 }
 
+// trunc cuts s to w runes, with an ellipsis if it had to cut
+func trunc(s string, w int) string {
+	r := []rune(s)
+	if len(r) <= w {
+		return s
+	}
+	if w > 1 {
+		return string(r[:w-1]) + "…"
+	}
+	return string(r[:w])
+}
+
 func pad(s string, w int) string {
 	n := utf8.RuneCountInString(s)
-	if n >= w {
+	if n > w {
 		r := []rune(s)
 		if w > 1 {
 			return string(r[:w-1]) + "…"
@@ -154,8 +166,8 @@ func Frame(p palette, rows []row, events []Event, width, height int, started tim
 	if nameW > 24 {
 		nameW = 24
 	}
-	// fixed columns: dot(2) name mode(8) last avg min max jit (8 each) loss(7) mos(5)
-	fixed := 2 + nameW + 1 + 8 + 8*5 + 7 + 5 + 2
+	// fixed columns: dot(2) name mode(9) last avg min max jit (8 each) loss(7) mos(5)
+	fixed := 2 + nameW + 1 + 9 + 8*5 + 7 + 5 + 2
 	histW := width - fixed
 	if histW < 10 {
 		histW = 10
@@ -172,7 +184,7 @@ func Frame(p palette, rows []row, events []Event, width, height int, started tim
 	b.WriteString(head + "\n" + keys + "\n\n")
 
 	b.WriteString(p.dim)
-	b.WriteString("  " + pad("TARGET", nameW) + " " + pad("MODE", 8) +
+	b.WriteString("  " + pad("TARGET", nameW) + " " + pad("MODE", 9) +
 		rpad("LAST", 8) + rpad("AVG", 8) + rpad("MIN", 8) + rpad("MAX", 8) + rpad("JITTER", 8) +
 		rpad("LOSS", 7) + rpad("MOS", 5) + "  HISTORY")
 	b.WriteString(p.reset + "\n")
@@ -206,8 +218,8 @@ func Frame(p palette, rows []row, events []Event, width, height int, started tim
 		} else if s.Last.Lost() && s.LastErr != "" {
 			last = s.LastErr
 		}
-		b.WriteString(dot + " " + pad(r.t.Name, nameW) + " " + p.dim + pad(r.t.Mode(), 8) + p.reset +
-			p.forRTT(s.Last.RTT) + rpad(pad(last, 8), 8) + p.reset +
+		b.WriteString(dot + " " + pad(r.t.Name, nameW) + " " + p.dim + pad(r.t.Mode(), 9) + p.reset +
+			p.forRTT(s.Last.RTT) + rpad(trunc(last, 8), 8) + p.reset +
 			rpad(fmtDur(nz(s.Avg, s)), 8) + rpad(fmtDur(nz(s.Min, s)), 8) + rpad(fmtDur(nz(s.Max, s)), 8) +
 			rpad(fmtDur(nz(s.Jitter, s)), 8) +
 			lossC + rpad(loss, 7) + p.reset + rpad(mos, 5) + "  " +

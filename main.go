@@ -91,7 +91,12 @@ func main() {
 			fatal(err)
 		}
 		m := &monitor{t: t, series: NewSeries(*window)}
-		m.prober, m.err = NewProber(t)
+		p, err := NewProber(t)
+		if err != nil {
+			m.err = err
+		} else {
+			m.prober = p
+		}
 		mons = append(mons, m)
 	}
 
@@ -125,14 +130,14 @@ func main() {
 	var wg sync.WaitGroup
 	start := time.Now()
 	for i, m := range mons {
-		if m.err != nil {
-			m.series.Add(Sample{At: time.Now(), RTT: -1}, m.err)
-			continue
-		}
 		wg.Add(1)
 		go func(m *monitor, offset time.Duration) {
 			defer wg.Done()
-			defer m.prober.Close()
+			defer func() {
+				if m.prober != nil {
+					m.prober.Close()
+				}
+			}()
 			// spread probes out so we don't burst N packets at the same instant
 			select {
 			case <-time.After(offset):
@@ -144,9 +149,20 @@ func main() {
 			for n := 0; *count == 0 || n < *count; n++ {
 				paused.Lock()
 				paused.Unlock()
-				pctx, pcancel := context.WithTimeout(ctx, *timeout)
-				rtt, err := m.prober.Probe(pctx)
-				pcancel()
+				var rtt time.Duration
+				var err error
+				if m.prober == nil {
+					// setup failed (DNS down, no route...). Keep retrying every
+					// interval and count it as loss, DNS outages are outages too.
+					m.prober, m.err = NewProber(m.t)
+				}
+				if m.prober == nil {
+					rtt, err = -1, m.err
+				} else {
+					pctx, pcancel := context.WithTimeout(ctx, *timeout)
+					rtt, err = m.prober.Probe(pctx)
+					pcancel()
+				}
 				if ctx.Err() != nil {
 					return
 				}
@@ -281,8 +297,9 @@ func printReport(p palette, mons []*monitor) {
 		"SENT", "LOST", "LOSS", "MIN", "AVG", "MAX", "JITTER", "MOS", p.reset)
 	for _, m := range mons {
 		s := m.series.Snapshot()
-		if m.err != nil {
-			fmt.Printf("%-*s  %-8s %s%s%s\n", nameW, m.t.Name, m.t.Mode(), p.red, m.err, p.reset)
+		if s.Sent == s.Lost && s.LastErr != "" {
+			fmt.Printf("%-*s  %-8s %5d %5d %5.1f%%  %s%s%s\n", nameW, m.t.Name, m.t.Mode(),
+				s.Sent, s.Lost, s.LossPct(), p.red, s.LastErr, p.reset)
 			continue
 		}
 		fmt.Printf("%-*s  %-8s %5d %5d %5.1f%% %9s %9s %9s %9s %5.1f\n", nameW, m.t.Name, m.t.Mode(),
