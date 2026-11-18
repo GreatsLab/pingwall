@@ -3,6 +3,12 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # or from the Actions tab: builds main and creates the tag + release
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "version without the v, e.g. 0.4.0"
+        required: true
 
 permissions:
   contents: write
@@ -15,17 +21,27 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
+      - name: version
+        id: v
+        run: |
+          v="${{ inputs.version }}"
+          [ -z "$v" ] && v="${GITHUB_REF_NAME#v}"
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
       - name: build
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
         run: |
           mkdir dist
           for target in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64; do
             os=${target%/*}; arch=${target#*/}
-            out=pingwall-${GITHUB_REF_NAME}-${os}-${arch}
+            out=pingwall-${TAG}-${os}-${arch}
             CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
-              -ldflags "-s -w -X main.version=${GITHUB_REF_NAME#v}" -o dist/$out .
+              -ldflags "-s -w -X main.version=${TAG#v}" -o dist/$out .
           done
           cd dist && sha256sum * > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: dist/*
           generate_release_notes: true
