@@ -1,14 +1,11 @@
 name: release
 
+# Create a release yourself on GitHub (Releases -> Draft a new release,
+# tag e.g. v0.4.0). This workflow then builds the binaries and attaches
+# them to that release.
 on:
-  push:
-    tags: ["v*"]
-  # or from the Actions tab: builds main and creates the tag + release
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "version without the v, e.g. 0.4.0"
-        required: true
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -21,15 +18,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-      - name: version
-        id: v
-        run: |
-          v="${{ inputs.version }}"
-          [ -z "$v" ] && v="${GITHUB_REF_NAME#v}"
-          echo "tag=v$v" >> "$GITHUB_OUTPUT"
       - name: build
         env:
-          TAG: ${{ steps.v.outputs.tag }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
           mkdir dist
           for target in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64; do
@@ -39,9 +30,8 @@ jobs:
               -ldflags "-s -w -X main.version=${TAG#v}" -o dist/$out .
           done
           cd dist && sha256sum * > SHA256SUMS
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.v.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          files: dist/*
-          generate_release_notes: true
+      - name: attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/* --clobber
